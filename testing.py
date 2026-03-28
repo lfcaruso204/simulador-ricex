@@ -8,7 +8,7 @@ import os
 import numpy as np
 
 # 1. SETUP DA PÁGINA
-st.set_page_config(page_title="Ricex - Gestão de Lotes", layout="wide")
+st.set_page_config(page_title="Gestão de Lotes", layout="wide")
 
 # CSS para métricas (Tamanho reduzido e elegante)
 st.markdown("""
@@ -27,7 +27,7 @@ with col_central:
         if os.path.exists('Ricex.png'):
             st.image('Ricex.png', width=100)
     with c_tit:
-        st.title("Gestão de Lotes de Importação - Ricex")
+        st.title("Gestão de Lotes de Importação")
         
     cid1, cid2 = st.columns(2)
     lote_nome = cid1.text_input("📦 Identificação do Lote", "Lote_Analise_Ricex")
