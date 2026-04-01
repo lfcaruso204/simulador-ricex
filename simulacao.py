@@ -148,6 +148,8 @@ if arquivo_upload is not None:
         st.markdown("---")
         st.subheader("📄 Detalhes por Produto")
         
+        filtro_nome = st.text_input("🔍 Digite o nome do produto para filtrar a tabela:", "")
+        
         visao = st.radio(
             "Escolha a visualização:",
             ["🌐 Visão Geral", "🚢 Importação", "💰 Venda"],
@@ -162,10 +164,13 @@ if arquivo_upload is not None:
             cols_tab = ['NomeProduto', 'Custo Unit. Ext', 'Custo Caixa (x6)','FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada']
         else: # 💰 Venda:
             cols_tab = ['NomeProduto', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Custo CMV Unit', 'Venda por Caixa', 'Lucro R$', 'Venda por Garrafa']
-        
+                
         # Criar DataFrame filtrado
         df_tab = df[cols_tab].copy()
-        
+
+        if filtro_nome:
+            df_tab = df_tab[df_tab['NomeProduto'].astype(str).str.contains(filtro_nome, case=False, na=False)]        
+
         # Calcular Totais
         totais = df_tab.select_dtypes(include=[np.number]).sum()
         linha_total = pd.DataFrame([['TOTAL'] + totais.tolist()], columns=cols_tab)
@@ -291,6 +296,30 @@ if arquivo_upload is not None:
 
 
 #%%
+
+
+
+#%%
+
+
+# 1. Entrar na pasta do projeto
+# cd "C:\Users\lcaruso\Desktop\Luca\Projeto Ricex"
+
+# 2. Instalar a biblioteca que faltava (se ainda não fez)
+# pip install xlsxwriter streamlit pandas plotly openpyxl
+# ou
+# py -m pip install plotly xlsxwriter openpyxl
+
+# 3. Rodar o sistema para abrir no seu navegador
+# py -m streamlit run simulacao.py
+
+# outra forma:
+# cd /d "C:\Users\lcaruso\Desktop\Luca\Projeto Ricex" && py -m streamlit run simulacao.py
+
+
+#%%
+
+
 
 #%%
 
