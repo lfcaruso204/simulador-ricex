@@ -40,6 +40,8 @@ if arquivo_upload is not None:
     try:
         # 3. PROCESSAMENTO DE DADOS
         df = pd.read_excel(arquivo_upload, sheet_name='analise')
+        df = df.dropna(subset=['NomeProduto'])
+        df = df[df['NomeProduto'].astype(str).str.lower() != 'inserir sku']
         df['Custo Unit. Ext'] = pd.to_numeric(df['Custo Unit. Ext'].astype(str).str.replace(r'[^\d,.]', '', regex=True).str.replace(',', '.'), errors='coerce').fillna(0.0)
 
         # --- SIDEBAR (PARÂMETROS) ---
@@ -306,4 +308,3 @@ if arquivo_upload is not None:
 
 # outra forma:
 # cd /d "C:\Users\lcaruso\Desktop\Luca\Projeto Ricex" && py -m streamlit run simulacao.py
-
