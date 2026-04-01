@@ -46,18 +46,32 @@ if arquivo_upload is not None:
 
         # --- SIDEBAR (PARÂMETROS) ---
         st.sidebar.header("⚙️ Parâmetros")
-        cambio = st.sidebar.number_input("Câmbio (€/R$)", value=6.30)
-        frete_p = st.sidebar.number_input("Frete (%)", value=3.0) / 100
+        
+        # Câmbio e Frete lado a lado
+        c1, c2 = st.sidebar.columns(2)
+        cambio = c1.number_input("Câmbio (€/R$)", value=6.30)
+        frete_p = c2.number_input("Frete (%)", value=3.0) / 100
+        
+#         cambio = st.sidebar.number_input("Câmbio (€/R$)", value=6.30)
+#         frete_p = st.sidebar.number_input("Frete (%)", value=3.0) / 100
+        
+        st.sidebar.markdown("---")
         
         st.sidebar.subheader("📥 Impostos Compra")
-        IPI_C = st.sidebar.number_input("IPI Compra (%)", value=6.5) / 100
-        PISCOF_C = st.sidebar.number_input("PIS/COFINS Compra (%)", value=11.75) / 100
-        DESP_C = st.sidebar.number_input("Despesas Compra (%)", value=2.0) / 100
+        # IPI, PISCOFINS e Despesas lado a lado
+        ci1, ci2, ci3 = st.sidebar.columns(3)
+        IPI_C = ci1.number_input("IPI (%)", value=6.5, key="ipi_c") / 100
+        PISCOF_C = ci2.number_input("PIS/COF (%)", value=11.75, key="pc_c") / 100
+        DESP_C = ci3.number_input("Desp. (%)", value=2.0, key="desp_c") / 100
 
+#         st.sidebar.markdown("---")
+        
         st.sidebar.subheader("📤 Impostos Venda")
-        icms_v_p = st.sidebar.number_input("ICMS Venda (%)", value=8.0) / 100
-        IPI_V = st.sidebar.number_input("IPI Venda (%)", value=6.5) / 100
-        COMIS = st.sidebar.number_input("Comissões (%)", value=6.5) / 100
+        # ICMS, IPI Venda e Comissões lado a lado
+        cv1, cv2, cv3 = st.sidebar.columns(3)
+        icms_v_p = cv1.number_input("ICMS (%)", value=8.0, key="icms_v") / 100
+        IPI_V = cv2.number_input("IPI (%)", value=6.5, key="ipi_v") / 100
+        COMIS = cv3.number_input("Comis. (%)", value=6.5, key="comis_v") / 100
         
         st.sidebar.markdown("---")
         st.sidebar.write("**Margem Alvo (%)**")
