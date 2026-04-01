@@ -47,7 +47,6 @@ if arquivo_upload is not None:
         cambio = st.sidebar.number_input("Câmbio (€/R$)", value=6.30)
         frete_p = st.sidebar.number_input("Frete (%)", value=3.0) / 100
         
-        
         st.sidebar.subheader("📥 Impostos Compra")
         IPI_C = st.sidebar.number_input("IPI Compra (%)", value=6.5) / 100
         PISCOF_C = st.sidebar.number_input("PIS/COFINS Compra (%)", value=11.75) / 100
@@ -57,8 +56,6 @@ if arquivo_upload is not None:
         icms_v_p = st.sidebar.number_input("ICMS Venda (%)", value=8.0) / 100
         IPI_V = st.sidebar.number_input("IPI Venda (%)", value=6.5) / 100
         COMIS = st.sidebar.number_input("Comissões (%)", value=6.5) / 100
-        
-        # depois, mudar o NotaENtrada para soma de IPI_C e PISCOFINS_C
         
         st.sidebar.markdown("---")
         st.sidebar.write("**Margem Alvo (%)**")
@@ -88,7 +85,7 @@ if arquivo_upload is not None:
         # 4. CÁLCULOS DE NEGÓCIO (CAIXA E GARRAFA)
         df['Custo Caixa (x6)'] = df['Custo Unit. Ext'] * 6
         df['FCA'] = df['Custo Caixa (x6)'] * cambio
-        df['Frete'] = df['FCA R$'] * frete_p
+        df['Frete'] = df['FCA'] * frete_p
         
         # Base para impostos de entrada (FCA + Frete)
         base_entrada = df['FCA'] + df['Frete']
@@ -117,7 +114,117 @@ if arquivo_upload is not None:
         df['Excesso R$'] = df['Venda por Caixa'] - preco_teto
 
 
-        # 5. MÉTRICAS E GRÁFICOS (PIZZA E FUNIL)
+        # 5. TABELA EXPANDIDA COM TOTAIS (FORMATO PT-BR)
+        
+        df['Venda por Garrafa'] = df['Venda por Caixa'] / 6
+
+        cols_tab = [
+            'NomeProduto', 
+            'Custo Unit. Ext', 
+            'Custo Caixa (x6)', 
+            'FCA',
+            'Frete',
+            'IPI Compra',
+            'PISCOFINS Compra',
+            'Despesas Compra',            
+            'Nota Entrada',
+            'ICMS Venda',
+            'IPI Venda',
+            'Comissao',
+            'Custo CMV Unit', 
+            'Venda por Caixa', 
+            'Lucro R$',
+            'Venda por Garrafa']
+        
+        df_tab = df[cols_tab].copy()
+        totais = df_tab.select_dtypes(include=[np.number]).sum()
+        linha_total = pd.DataFrame([['TOTAL DO LOTE'] + totais.tolist()], columns=cols_tab)
+        df_final = pd.concat([df_tab, linha_total], ignore_index=True)
+
+        def fmt_br(prefix): return lambda x: f"{prefix} {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+         
+        st.markdown("---")
+        st.subheader("📄 Detalhes por Produto")
+        
+        visao = st.radio(
+            "Escolha a visualização:",
+            ["🌐 Visão Geral", "🚢 Importação", "💰 Venda"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+        # Definição das colunas por visão
+        if visao == "🌐 Visão Geral":
+            cols_tab = ['NomeProduto', 'Custo Unit. Ext', 'Custo Caixa (x6)','FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Custo CMV Unit', 'Venda por Caixa', 'Lucro R$', 'Venda por Garrafa']
+        elif visao == "🚢 Importação":
+            cols_tab = ['NomeProduto', 'Custo Unit. Ext', 'Custo Caixa (x6)','FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada']
+        else: # 💰 Venda:
+            cols_tab = ['NomeProduto', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Custo CMV Unit', 'Venda por Caixa', 'Lucro R$', 'Venda por Garrafa']
+        
+        # Criar DataFrame filtrado
+        df_tab = df[cols_tab].copy()
+        
+        # Calcular Totais
+        totais = df_tab.select_dtypes(include=[np.number]).sum()
+        linha_total = pd.DataFrame([['TOTAL'] + totais.tolist()], columns=cols_tab)
+        df_final = pd.concat([df_tab, linha_total], ignore_index=True)
+
+        # Dicionário de Formatação (Centralizado)
+        format_dict = {
+            'Custo Unit. Ext': fmt_br('€'), 'Custo Caixa (x6)': fmt_br('€'),'FCA': fmt_br('R$'), 'Frete': fmt_br('R$'),
+            'IPI Compra': fmt_br('R$'), 'PISCOFINS Compra': fmt_br('R$'), 'Despesas Compra': fmt_br('R$'),
+            'Nota Entrada': fmt_br('R$'), 'ICMS Venda': fmt_br('R$'), 'IPI Venda': fmt_br('R$'),
+            'Comissao': fmt_br('R$'), 'Custo CMV Unit': fmt_br('R$'), 'Venda por Caixa': fmt_br('R$'),
+            'Lucro R$': fmt_br('R$'), 'Venda por Garrafa': fmt_br('R$')
+        }
+        
+        # Filtra os formatadores apenas para as colunas visíveis
+        fmt_config = {k: v for k, v in format_dict.items() if k in cols_tab}
+
+        # Exibição da Tabela
+        st.dataframe(
+            df_final.style.format(fmt_config)
+            .set_table_styles([
+                {'selector': 'th', 'props': [('font-size', '11px'), ('text-align', 'center')]},
+                {'selector': 'td', 'props': [('font-size', '11px')]}
+            ])
+            .apply(lambda row: ['background-color: #f0f2f6; font-weight: bold' if row['NomeProduto'] == 'TOTAL' else '' for _ in row], axis=1)
+            .applymap(lambda v: f'color: {"#4169E1" if v > 0 else "#FF4B4B"}; font-weight: bold' if isinstance(v, (int, float)) else '', 
+                      subset=[c for c in ['Lucro R$'] if c in cols_tab]),
+            use_container_width=True, 
+            height=500,
+            column_config={
+                "NomeProduto": st.column_config.TextColumn("Produto", pinned=True) # CONGELA A COLUNA
+            }
+        )
+        
+        
+        # 6. BOTÃO DE EXPORTAÇÃO ---
+        # Criamos um buffer para salvar o arquivo Excel em memória
+        buffer = io.BytesIO()
+
+        # Criamos o arquivo Excel usando o DataFrame final (que já tem a linha de TOTAL)
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_final.to_excel(writer, index=False, sheet_name='Analise_Lote')
+            
+            # Ajuste opcional: formatar larguras de colunas no Excel (opcional)
+            workbook  = writer.book
+            worksheet = writer.sheets['Analise_Lote']
+            header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+            
+            # Aplicar o formato de cabeçalho
+            for col_num, value in enumerate(df_final.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+
+        # Botão de Download
+        st.download_button(
+            label="📥 Baixar Detalhes em Excel (.xlsx)",
+            data=buffer.getvalue(),
+            file_name=f"Analise_{lote_nome}_{date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )        
+
+        # 7. MÉTRICAS E GRÁFICOS (PIZZA E FUNIL) ---
         v_tot, cmv_tot, l_tot = df['Venda por Caixa'].sum(), df['Custo CMV Unit'].sum(), df['Lucro R$'].sum()
         m1, m2, m3 = st.columns(3)
         m1.metric("Venda Total", f"R$ {v_tot:,.2f}")
@@ -151,7 +258,7 @@ if arquivo_upload is not None:
                 marker={"color": ["#FFB347", "#FFCC80", "#FFE082", "#4DB6AC"]}))
             st.plotly_chart(fig_f, use_container_width=True)
 
-        # 6. SENSIBILIDADE (PREÇO GARRAFA VS MARGEM)
+        # 8. SENSIBILIDADE (PREÇO GARRAFA VS MARGEM)
         st.markdown("---")
         st.subheader("📈 Sensibilidade: Preço de Venda (Garrafa) vs. Margem")
         custo_garrafa_entrada = df['Nota Entrada'].mean() / 6
@@ -168,7 +275,7 @@ if arquivo_upload is not None:
         fig_sens.update_layout(xaxis_title="Margem Selecionada (%)", yaxis_title="Preço Médio por Garrafa R$")
         st.plotly_chart(fig_sens, use_container_width=True)
 
-        # 7. TOP 10 EXCESSO (ORDEM DESCRESCENTE)
+        # 9. TOP 10 EXCESSO (ORDEM DESCRESCENTE)
         df_excesso = df[df['Venda por Caixa'] > preco_teto].sort_values('Excesso R$', ascending=True).tail(10)
         if not df_excesso.empty:
             st.markdown("---")
@@ -176,149 +283,7 @@ if arquivo_upload is not None:
             fig_ex = px.bar(df_excesso, x='Excesso R$', y='NomeProduto', orientation='h', color='Excesso R$', color_continuous_scale='Reds', text_auto='.2f')
             st.plotly_chart(fig_ex, use_container_width=True)
 
-#        # 8. TABELA EXPANDIDA COM TOTAIS (FORMATO PT-BR)
-#        st.markdown("---")
-#        st.subheader("📄 Detalhes por Produto")
-#        
-#        c1, c2, c3 = st.columns([1.5, 3.5, 5]) 
-#        
-#        with c1:
-#            st.markdown('<p style="background-color: #f0f2f6; border-radius: 5px; text-align: center; font-weight: bold; padding: 5px; margin-bottom: 0px; font-size: 14px; color: #31333F;">🗂️ Produto</p>', unsafe_allow_html=True)
-#        with c2:
-#            st.markdown('<p style="background-color: #E3F2FD; border-radius: 5px; text-align: center; font-weight: bold; padding: 5px; margin-bottom: 0px; font-size: 14px; color: #1976D2;">🚢 Processo de Importação</p>', unsafe_allow_html=True)
-#        with c3:
-#            st.markdown('<p style="background-color: #E8F5E9; border-radius: 5px; text-align: center; font-weight: bold; padding: 5px; margin-bottom: 0px; font-size: 14px; color: #388E3C;">💰 Processo de Venda</p>', unsafe_allow_html=True)
-#
-        
-        df['Venda por Garrafa'] = df['Venda por Caixa'] / 6
 
-        cols_tab = [
-            'NomeProduto', 
-            'Custo Unit. Ext', 
-            'Custo Caixa (x6)', 
-            'FCA',
-            'Frete',
-            'IPI Compra',
-            'PISCOFINS Compra',
-            'Despesas Compra',            
-            'Nota Entrada',
-            'ICMS Venda',
-            'IPI Venda',
-            'Comissao',
-            'Custo CMV Unit', 
-            'Venda por Caixa', 
-            'Lucro R$',
-            'Venda por Garrafa']
-        
-        df_tab = df[cols_tab].copy()
-        totais = df_tab.select_dtypes(include=[np.number]).sum()
-        linha_total = pd.DataFrame([['TOTAL DO LOTE'] + totais.tolist()], columns=cols_tab)
-        df_final = pd.concat([df_tab, linha_total], ignore_index=True)
-
-        def fmt_br(prefix): return lambda x: f"{prefix} {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        
-#        st.dataframe(df_final.style.format({
-#            'Custo Unit. Ext': fmt_br('$'), 
-#            'Custo Caixa (x6)': fmt_br('$'),
-#            'FCA': fmt_br('R$'),
-#            'Frete': fmt_br('R$'),
-#            'IPI Compra': fmt_br('R$'),
-#            'PISCOFINS Compra': fmt_br('R$'),
-#            'Despesas Compra': fmt_br('R$'), 
-#            'Nota Entrada': fmt_br('R$'), 
-#            'ICMS Venda': fmt_br('R$'),          
-#            'IPI Venda': fmt_br('R$'),          
-#            'Comissao': fmt_br('R$'),     
-#            'Custo CMV Unit': fmt_br('R$'),
-#            'Venda por Caixa': fmt_br('R$'), 
-#            'Lucro R$': fmt_br('R$'),
-#            'Venda por Garrafa': fmt_br('R$')
-#        }).apply(lambda row: ['background-color: #f0f2f6; font-weight: bold' if row['NomeProduto'] == 'TOTAL DO LOTE' else '' for _ in row], axis=1)
-#          .applymap(lambda v: f'color: {"#4169E1" if v > 0 else "#FF4B4B"}; font-weight: bold' if isinstance(v, (int, float)) else '', subset=['Lucro R$']),
-#        use_container_width=True, height=600)
-
-         
-        st.markdown("---")
-        st.subheader("📄 Detalhes por Produto")
-        
-        visao = st.radio(
-            "Escolha a visualização:",
-            ["📦 Produto", "🚢 Importação", "💰 Venda", "🌐 Visão Geral"],
-            horizontal=True,
-            label_visibility="collapsed"
-        )
-
-        # Definição das colunas por visão
-        if visao == "📦 Produto":
-            cols_tab = ['NomeProduto', 'Custo Unit. Ext']
-        
-        elif visao == "🚢 Importação":
-            cols_tab = ['NomeProduto', 'Custo Unit. Ext', 'FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada']
-            
-        elif visao == "💰 Venda":
-            cols_tab = ['NomeProduto', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Custo CMV Unit', 'Venda por Caixa', 'Lucro R$', 'Venda por Garrafa']
-        
-        else: # Visão Geral (Todas)
-            cols_tab = ['NomeProduto', 'Custo Unit. Ext', 'FCA', 'Nota Entrada', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Custo CMV Unit', 'Venda por Caixa', 'Lucro R$', 'Venda por Garrafa']
-
-        # Criar DataFrame filtrado
-        df_tab = df[cols_tab].copy()
-        
-        # Calcular Totais
-        totais = df_tab.select_dtypes(include=[np.number]).sum()
-        linha_total = pd.DataFrame([['TOTAL'] + totais.tolist()], columns=cols_tab)
-        df_final = pd.concat([df_tab, linha_total], ignore_index=True)
-
-        # Dicionário de Formatação (Centralizado)
-        format_dict = {
-            'Custo Unit. Ext': fmt_br('$'), 'FCA': fmt_br('R$'), 'Frete': fmt_br('R$'),
-            'IPI Compra': fmt_br('R$'), 'PISCOFINS Compra': fmt_br('R$'), 'Despesas Compra': fmt_br('R$'),
-            'Nota Entrada': fmt_br('R$'), 'ICMS': fmt_br('R$'), 'IPI Venda': fmt_br('R$'),
-            'Comissão': fmt_br('R$'), 'Custo CMV Unit': fmt_br('R$'), 'Venda por Caixa': fmt_br('R$'),
-            'Lucro R$': fmt_br('R$'), 'Venda por Garrafa': fmt_br('R$')
-        }
-        
-        # Filtra os formatadores apenas para as colunas visíveis
-        fmt_config = {k: v for k, v in format_dict.items() if k in cols_tab}
-
-        # Exibição da Tabela
-        st.dataframe(
-            df_final.style.format(fmt_config)
-            .set_table_styles([
-                {'selector': 'th', 'props': [('font-size', '11px'), ('text-align', 'center')]},
-                {'selector': 'td', 'props': [('font-size', '11px')]}
-            ])
-            .apply(lambda row: ['background-color: #f0f2f6; font-weight: bold' if row['NomeProduto'] == 'TOTAL' else '' for _ in row], axis=1)
-            .applymap(lambda v: f'color: {"#4169E1" if v > 0 else "#FF4B4B"}; font-weight: bold' if isinstance(v, (int, float)) else '', 
-                      subset=[c for c in ['Lucro R$'] if c in cols_tab]),
-            use_container_width=True, height=500
-        )
-        
-        
-        # --- 9. BOTÃO DE EXPORTAÇÃO ---
-        # Criamos um buffer para salvar o arquivo Excel em memória
-        buffer = io.BytesIO()
-
-        # Criamos o arquivo Excel usando o DataFrame final (que já tem a linha de TOTAL)
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_final.to_excel(writer, index=False, sheet_name='Analise_Lote')
-            
-            # Ajuste opcional: formatar larguras de colunas no Excel (opcional)
-            workbook  = writer.book
-            worksheet = writer.sheets['Analise_Lote']
-            header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-            
-            # Aplicar o formato de cabeçalho
-            for col_num, value in enumerate(df_final.columns.values):
-                worksheet.write(0, col_num, value, header_format)
-
-        # Botão de Download
-        st.download_button(
-            label="📥 Baixar Detalhes em Excel (.xlsx)",
-            data=buffer.getvalue(),
-            file_name=f"Analise_{lote_nome}_{date.today()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
         
     except Exception as e: st.error(f"Erro no processamento: {e}")
 
