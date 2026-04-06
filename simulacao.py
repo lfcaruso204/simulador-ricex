@@ -210,12 +210,13 @@ if arquivo_upload is not None:
                 {'selector': 'td', 'props': [('font-size', '11px')]}
             ])
             .apply(lambda row: ['background-color: #f0f2f6; font-weight: bold' if row['NomeProduto'] == 'TOTAL' else '' for _ in row], axis=1)
-            .applymap(lambda v: f'color: {"#4169E1" if v > 0 else "#FF4B4B"}; font-weight: bold' if isinstance(v, (int, float)) else '', 
+            # AQUI: Alterado de applymap para map
+            .map(lambda v: f'color: {"#4169E1" if v > 0 else "#FF4B4B"}; font-weight: bold' if isinstance(v, (int, float)) else '', 
                       subset=[c for c in ['Lucro R$'] if c in cols_tab]),
             use_container_width=True, 
             height=500,
             column_config={
-                "NomeProduto": st.column_config.TextColumn("Produto", pinned=True) # CONGELA A COLUNA
+                "NomeProduto": st.column_config.TextColumn("Produto", pinned=True)
             }
         )
         
