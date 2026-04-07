@@ -86,7 +86,7 @@ if arquivo_upload is not None:
         df_editor = st.data_editor(
             df_orig[['NomeProduto', 'Qtd Caixas', col_custo_cx]],
             column_config={
-                "Qtd Caixas": st.column_config.NumberColumn("Qtd Caixas", min_value=0, max_value=20, step=1),
+                "Qtd Caixas": st.column_config.NumberColumn("Qtd Caixas", min_value=0, max_value=100, step=1),
                 col_custo_cx: st.column_config.NumberColumn(f"Custo (€/{qtde}un)", format="€ %.2f", disabled=True)
             },
             disabled=["NomeProduto", col_custo_cx],
