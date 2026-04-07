@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import streamlit as st
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date
@@ -7,18 +9,13 @@ import io
 import os
 import numpy as np
 
-
 # 1. SETUP E ESTILO
 st.set_page_config(page_title="Ricex - Gestão de Lotes", layout="wide")
 st.markdown("""
     <style>
-    [data-testid="stMetricValue"] { font-size: 24px !important; color: #31333F; }
-    .main .block-container { padding-left: 2rem; padding-right: 2rem; padding-top: 1.5rem; }
-    /* Diminui fonte dos labels e inputs na sidebar */
-    [data-testid="stSidebar"] .stNumberInput label, 
-    [data-testid="stSidebar"] .stSlider label { font-size: 12px !important; margin-bottom: 0px; }
-    [data-testid="stSidebar"] .stNumberInput input { font-size: 12px !important; }
-    div[data-testid="stSidebarUserContent"] { padding-top: 1rem; }
+    [data-testid="stMetricValue"] { font-size: 28px !important; color: #31333F; }
+    .main .block-container { padding: 2rem; }
+    [data-testid="stSidebar"] .stNumberInput label { font-size: 12px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -38,277 +35,271 @@ arquivo_upload = st.file_uploader("📂 Arraste o arquivo Excel aqui (Aba: 'anal
 
 if arquivo_upload is not None:
     try:
-        # 3. PROCESSAMENTO DE DADOS
-        df = pd.read_excel(arquivo_upload, sheet_name='analise')
-        df = df.dropna(subset=['NomeProduto'])
-        df = df[df['NomeProduto'].astype(str).str.lower() != 'inserir sku']
-        df['Custo Unit. Ext'] = pd.to_numeric(df['Custo Unit. Ext'].astype(str).str.replace(r'[^\d,.]', '', regex=True).str.replace(',', '.'), errors='coerce').fillna(0.0)
+        # 3. PROCESSAMENTO INICIAL
+        df_orig = pd.read_excel(arquivo_upload, sheet_name='analise')
+        df_orig = df_orig.dropna(subset=['NomeProduto'])
+        df_orig = df_orig[df_orig['NomeProduto'].astype(str).str.lower() != 'inserir sku']
+        
+        def clean_price(val):
+            if isinstance(val, str):
+                return float(val.replace('R$', '').replace('€', '').replace('.', '').replace(',', '.').strip())
+            return float(val)
 
         # --- SIDEBAR (PARÂMETROS) ---
         st.sidebar.header("⚙️ Parâmetros")
-        
-        # Câmbio e Frete lado a lado
         c1, c2 = st.sidebar.columns(2)
         cambio = c1.number_input("Câmbio (€/R$)", value=6.30)
         frete_p = c2.number_input("Frete (%)", value=3.0) / 100
         
-#         cambio = st.sidebar.number_input("Câmbio (€/R$)", value=6.30)
-#         frete_p = st.sidebar.number_input("Frete (%)", value=3.0) / 100
+        # VARIÁVEL INSERÍVEL: Garrafas por Caixa
+        qtde = st.sidebar.number_input("Garrafas por Caixa (un)", value=6, min_value=1, step=1)
+        col_custo_cx = f"Custo da Caixa x {qtde}"
         
         st.sidebar.markdown("---")
         
         st.sidebar.subheader("📥 Impostos Compra")
-        # IPI, PISCOFINS e Despesas lado a lado
-        ci1, ci2, ci3 = st.sidebar.columns(3)
+        ci1, ci2 = st.sidebar.columns(2)
         IPI_C = ci1.number_input("IPI (%)", value=6.5, key="ipi_c") / 100
         PISCOF_C = ci2.number_input("PIS/COF (%)", value=11.75, key="pc_c") / 100
-        DESP_C = ci3.number_input("Desp. (%)", value=2.0, key="desp_c") / 100
-
-#         st.sidebar.markdown("---")
+        DESP_C = st.sidebar.number_input("Desp. (%)", value=2.0, key="desp_c") / 100
         
         st.sidebar.subheader("📤 Impostos Venda")
-        # ICMS, IPI Venda e Comissões lado a lado
-        cv1, cv2, cv3 = st.sidebar.columns(3)
+        cv1, cv2 = st.sidebar.columns(2)
         icms_v_p = cv1.number_input("ICMS (%)", value=8.0, key="icms_v") / 100
         IPI_V = cv2.number_input("IPI (%)", value=6.5, key="ipi_v") / 100
-        COMIS = cv3.number_input("Comis. (%)", value=6.5, key="comis_v") / 100
+        COMIS = st.sidebar.number_input("Comis. (%)", value=6.5, key="comis_v") / 100
         
         st.sidebar.markdown("---")
-        st.sidebar.write("**Margem Alvo (%)**")
         
-        # Campo de Digitação
-        margem_digitada = st.sidebar.number_input(
-            "Digitar Margem", 
-            value=20.0, 
-            step=0.1, 
-            format="%.1f",
-            label_visibility="collapsed"
-        )
-        
-        # Slider sincronizado com o campo de digitação
-        margem_alvo_slider = st.sidebar.slider(
-            "Ajustar via Slider", 
-            min_value=0.0, 
-            max_value=60.0, 
-            value=float(margem_digitada),
-            step=0.1,
-            help="Arraste para ajuste fino"
-        ) / 100
-        
+        margem_alvo = st.sidebar.slider("Margem Alvo (%)", 0.0, 60.0, 20.0) / 100
         preco_teto = st.sidebar.number_input("Preço Teto por Caixa (R$)", value=5000.0)
-        ajustar_auto = st.sidebar.button("🔄 Ajustar Margens ao Teto")
-        
-        # 4. CÁLCULOS DE NEGÓCIO (CAIXA E GARRAFA)
-        df['Custo Caixa (x6)'] = df['Custo Unit. Ext'] * 6
-        df['FCA'] = df['Custo Caixa (x6)'] * cambio
+        ajustar_auto = st.sidebar.checkbox("🔄 Ajustar Margens ao Teto")
+
+        # Preparação do custo dinâmico
+        df_orig['Custo Unit. Ext'] = df_orig['Custo Unit. Ext'].apply(clean_price).fillna(0.0)
+        df_orig[col_custo_cx] = df_orig['Custo Unit. Ext'] * qtde
+
+        # --- 4. EDITOR DE QUANTIDADES ---
+        st.subheader("📦 1. Definir Quantidades do Lote")
+        if 'Qtd Caixas' not in df_orig.columns: df_orig['Qtd Caixas'] = 1
+
+        df_editor = st.data_editor(
+            df_orig[['NomeProduto', 'Qtd Caixas', col_custo_cx]],
+            column_config={
+                "Qtd Caixas": st.column_config.NumberColumn("Qtd Caixas", min_value=0, max_value=20, step=1),
+                col_custo_cx: st.column_config.NumberColumn(f"Custo (€/{qtde}un)", format="€ %.2f", disabled=True)
+            },
+            disabled=["NomeProduto", col_custo_cx],
+            use_container_width=True, hide_index=True
+        )
+
+        # --- 5. CÁLCULOS ---
+        df = df_orig.copy()
+        df['Qtd Caixas'] = df_editor['Qtd Caixas']
+        df['FCA'] = (df[col_custo_cx] * df['Qtd Caixas']) * cambio
         df['Frete'] = df['FCA'] * frete_p
-        
-        # Base para impostos de entrada (FCA + Frete)
         base_entrada = df['FCA'] + df['Frete']
+        
         df['IPI Compra'] = base_entrada * IPI_C
         df['PISCOFINS Compra'] = base_entrada * PISCOF_C
         df['Despesas Compra'] = base_entrada * DESP_C
-
-        # Nova Definição de Nota Entrada: FCA+Frete + Impostos Compra
         df['Nota Entrada'] = base_entrada + df['IPI Compra'] + df['PISCOFINS Compra'] + df['Despesas Compra']
 
         if ajustar_auto:
-            df['Margem Aplicada'] = (1 - (df['Nota Entrada'] / preco_teto) - icms_v_p - IPI_V - COMIS)
+            teto_total = preco_teto * df['Qtd Caixas']
+            df['Margem Aplicada'] = (1 - (df['Nota Entrada'] / teto_total.replace(0, 1)) - icms_v_p - IPI_V - COMIS)
         else:
-            df['Margem Aplicada'] = margem_alvo_slider
+            df['Margem Aplicada'] = margem_alvo
             
         divisor = 1 - (icms_v_p + IPI_V + COMIS + df['Margem Aplicada'])
-        df['Venda por Caixa'] = df['Nota Entrada'] / divisor
+        df['Venda Total'] = df['Nota Entrada'] / divisor
         
-        # Impostos sobre a Venda
-        df['ICMS Venda'] = df['Venda por Caixa'] * icms_v_p
-        df['IPI Venda'] = df['Venda por Caixa'] * IPI_V
-        df['Comissao'] = df['Venda por Caixa'] * COMIS
-        
+        df['ICMS Venda'] = df['Venda Total'] * icms_v_p
+        df['IPI Venda'] = df['Venda Total'] * IPI_V
+        df['Comissao'] = df['Venda Total'] * COMIS
         df['Custo CMV Unit'] = df['Nota Entrada'] + df['ICMS Venda'] + df['IPI Venda'] + df['Comissao']
-        df['Lucro R$'] = df['Venda por Caixa'] - df['Custo CMV Unit']
-        df['Excesso R$'] = df['Venda por Caixa'] - preco_teto
+        df['Lucro R$'] = df['Venda Total'] - df['Custo CMV Unit']
+        df['Venda por Garrafa'] = (df['Venda Total'] / (df['Qtd Caixas'] * qtde)).replace([np.inf, -np.inf], 0)
 
-
-        # 5. TABELA EXPANDIDA COM TOTAIS (FORMATO PT-BR)
-        
-        df['Venda por Garrafa'] = df['Venda por Caixa'] / 6
-
-        cols_tab = [
-            'NomeProduto', 
-            'Custo Unit. Ext', 
-            'Custo Caixa (x6)', 
-            'FCA',
-            'Frete',
-            'IPI Compra',
-            'PISCOFINS Compra',
-            'Despesas Compra',            
-            'Nota Entrada',
-            'ICMS Venda',
-            'IPI Venda',
-            'Comissao',
-            'Custo CMV Unit', 
-            'Venda por Caixa', 
-            'Lucro R$',
-            'Venda por Garrafa']
-        
-        df_tab = df[cols_tab].copy()
-        totais = df_tab.select_dtypes(include=[np.number]).sum()
-        linha_total = pd.DataFrame([['TOTAL DO LOTE'] + totais.tolist()], columns=cols_tab)
-        df_final = pd.concat([df_tab, linha_total], ignore_index=True)
-
-        def fmt_br(prefix): return lambda x: f"{prefix} {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-         
+        # --- 6. TABELA EXPANDIDA ---
         st.markdown("---")
-        st.subheader("📄 Detalhes por Produto")
-        
-        filtro_nome = st.text_input("🔍 Digite o nome do produto para filtrar a tabela:", "")
-        
-        visao = st.radio(
-            "Escolha a visualização:",
-            ["🌐 Visão Geral", "🚢 Importação", "💰 Venda"],
-            horizontal=True,
-            label_visibility="collapsed"
-        )
+        st.subheader("📄 2. Detalhes por Produto")
+        filtro_nome = st.text_input("🔍 Filtrar produto:", "")
+        visao = st.radio("Escolha a visualização:", ["🌐 Visão Geral", "🚢 Importação", "💰 Venda"], horizontal=True)
 
-        # Definição das colunas por visão
         if visao == "🌐 Visão Geral":
-            cols_tab = ['NomeProduto', 'Custo Unit. Ext', 'Custo Caixa (x6)','FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Custo CMV Unit', 'Venda por Caixa', 'Lucro R$', 'Venda por Garrafa']
+            cols_tab = ['NomeProduto', 'Qtd Caixas', 'Custo Unit. Ext', col_custo_cx, 'FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Venda Total', 'Lucro R$', 'Venda por Garrafa']
         elif visao == "🚢 Importação":
-            cols_tab = ['NomeProduto', 'Custo Unit. Ext', 'Custo Caixa (x6)','FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada']
-        else: # 💰 Venda:
-            cols_tab = ['NomeProduto', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Custo CMV Unit', 'Venda por Caixa', 'Lucro R$', 'Venda por Garrafa']
-                
-        # Criar DataFrame filtrado
+            cols_tab = ['NomeProduto', 'Qtd Caixas', 'Custo Unit. Ext', col_custo_cx,'FCA', 'Frete', 'IPI Compra', 'PISCOFINS Compra', 'Despesas Compra', 'Nota Entrada']
+        else:
+            cols_tab = ['NomeProduto', 'Qtd Caixas', 'ICMS Venda', 'IPI Venda', 'Comissao', 'Venda Total', 'Lucro R$', 'Venda por Garrafa']
+
         df_tab = df[cols_tab].copy()
+        if filtro_nome: df_tab = df_tab[df_tab['NomeProduto'].str.contains(filtro_nome, case=False)]
 
-        if filtro_nome:
-            df_tab = df_tab[df_tab['NomeProduto'].astype(str).str.contains(filtro_nome, case=False, na=False)]        
-
-        # Calcular Totais
         totais = df_tab.select_dtypes(include=[np.number]).sum()
         linha_total = pd.DataFrame([['TOTAL'] + totais.tolist()], columns=cols_tab)
         df_final = pd.concat([df_tab, linha_total], ignore_index=True)
 
-        # Dicionário de Formatação (Centralizado)
-        format_dict = {
-            'Custo Unit. Ext': fmt_br('€'), 'Custo Caixa (x6)': fmt_br('€'),'FCA': fmt_br('R$'), 'Frete': fmt_br('R$'),
-            'IPI Compra': fmt_br('R$'), 'PISCOFINS Compra': fmt_br('R$'), 'Despesas Compra': fmt_br('R$'),
-            'Nota Entrada': fmt_br('R$'), 'ICMS Venda': fmt_br('R$'), 'IPI Venda': fmt_br('R$'),
-            'Comissao': fmt_br('R$'), 'Custo CMV Unit': fmt_br('R$'), 'Venda por Caixa': fmt_br('R$'),
-            'Lucro R$': fmt_br('R$'), 'Venda por Garrafa': fmt_br('R$')
-        }
-        
-        # Filtra os formatadores apenas para as colunas visíveis
-        fmt_config = {k: v for k, v in format_dict.items() if k in cols_tab}
+        def fmt_br(prefix): return lambda x: f"{prefix} {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        format_dict = {c: fmt_br('R$') for c in df_final.columns if c not in ['NomeProduto', 'Qtd Caixas', 'Custo Unit. Ext', col_custo_cx]}
+        format_dict.update({'Custo Unit. Ext': fmt_br('€'), col_custo_cx: fmt_br('€'), 'Qtd Caixas': '{:.0f}'})
 
-        # Exibição da Tabela
         st.dataframe(
-            df_final.style.format(fmt_config)
-            .set_table_styles([
-                {'selector': 'th', 'props': [('font-size', '11px'), ('text-align', 'center')]},
-                {'selector': 'td', 'props': [('font-size', '11px')]}
-            ])
+            df_final.style.format({k: v for k, v in format_dict.items() if k in cols_tab})
             .apply(lambda row: ['background-color: #f0f2f6; font-weight: bold' if row['NomeProduto'] == 'TOTAL' else '' for _ in row], axis=1)
-            # AQUI: Alterado de applymap para map
-            .map(lambda v: f'color: {"#4169E1" if v > 0 else "#FF4B4B"}; font-weight: bold' if isinstance(v, (int, float)) else '', 
-                      subset=[c for c in ['Lucro R$'] if c in cols_tab]),
-            use_container_width=True, 
-            height=500,
-            column_config={
-                "NomeProduto": st.column_config.TextColumn("Produto", pinned=True)
-            }
+            .map(lambda v: f'color: {"#4169E1" if v > 0 else "#FF4B4B"}; font-weight: bold' if isinstance(v, (int, float)) else '', subset=[c for c in ['Lucro R$'] if c in cols_tab]),
+            use_container_width=True, height=400
         )
         
-        
-        # 6. BOTÃO DE EXPORTAÇÃO ---
-        # Criamos um buffer para salvar o arquivo Excel em memória
-        buffer = io.BytesIO()
+        # Botão Exportar Tabela
+        buffer_det = io.BytesIO()
+        df_final.to_excel(buffer_det, index=False)
+        st.download_button("📥 Exportar Detalhes para Excel", buffer_det.getvalue(), f"Detalhes_{lote_nome}.xlsx")
 
-        # Criamos o arquivo Excel usando o DataFrame final (que já tem a linha de TOTAL)
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_final.to_excel(writer, index=False, sheet_name='Analise_Lote')
-            
-            # Ajuste opcional: formatar larguras de colunas no Excel (opcional)
-            workbook  = writer.book
-            worksheet = writer.sheets['Analise_Lote']
-            header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-            
-            # Aplicar o formato de cabeçalho
-            for col_num, value in enumerate(df_final.columns.values):
-                worksheet.write(0, col_num, value, header_format)
-
-        # Botão de Download
-        st.download_button(
-            label="📥 Baixar Detalhes em Excel (.xlsx)",
-            data=buffer.getvalue(),
-            file_name=f"Analise_{lote_nome}_{date.today()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )        
-
-        # 7. MÉTRICAS E GRÁFICOS (PIZZA E FUNIL) ---
-        v_tot, cmv_tot, l_tot = df['Venda por Caixa'].sum(), df['Custo CMV Unit'].sum(), df['Lucro R$'].sum()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Venda Total", f"R$ {v_tot:,.2f}")
-        m2.metric("Custo Total (CMV)", f"R$ {cmv_tot:,.2f}")
-        m3.metric("Lucro Estimado", f"R$ {l_tot:,.2f}")
-
+       # --- 7. MÉTRICAS ---
         st.markdown("---")
-        g1, g2 = st.columns(2)
         
+        st.subheader("📊 Resumo da Simulação")
+        
+        # Cálculos das somas
+        v_tot = df['Venda Total'].sum()
+        cmv_tot = df['Custo CMV Unit'].sum()
+        l_tot = df['Lucro R$'].sum()
+        f_tot = df['Frete'].sum()
+        n_ent_tot = df['Nota Entrada'].sum() 
+        qtd_cx_tot = df['Qtd Caixas'].sum()
+        qtd_gar_tot = qtd_cx_tot * qtde # Total de garrafas baseado na variável inserível
+
+        # Ajuste para 6 colunas
+        m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
+        
+        m1.metric("**Total de Garrafas:**", f"{qtd_gar_tot:.0f}")
+        m2.metric("**Total de Caixas:**", f"{qtd_cx_tot:.0f}")
+        m3.metric("**Frete Total:**", f"R$ {f_tot:,.2f}")
+        m4.metric("**Nota Entrada Total:**", f"R$ {n_ent_tot:,.2f}") # Nova métrica na ordem solicitada
+        m5.metric("**Custo CMV Total:**", f"R$ {cmv_tot:,.2f}")
+        m6.metric("**Venda Total Lote:**", f"R$ {v_tot:,.2f}")
+        m7.metric("**Lucro Estimado:**", f"R$ {l_tot:,.2f}")
+        
+        st.markdown("---")
+
+
+        # --- 8. GRÁFICOS ---
+        g1, g2 = st.columns(2)
         with g1:
             st.subheader("💰 Distribuição de Custos")
-            dados_p = {
-                'Custo FCA': df['FCA'].sum(), 
-                'Entrada': df['Nota Entrada'].sum() - df['FCA'].sum(),
-                'Impostos Compra': df['IPI Compra'].sum() + df['PISCOFINS Compra'].sum(),
-                'Impostos Venda': df['ICMS Venda'].sum() + df['IPI Venda'].sum(),      # Agora aparece no gráfico
-                'Comissões': df['Comissao'].sum(),                              # Agora aparece no gráfico
-                'Lucro': df['Lucro R$'].sum()
-            }
-            
-            cores_map = {'Custo FCA': '#FFB347', 'Entrada': '#FFCC80', 'Impostos Compra': '#FFE082','Impostos Venda': '#E9E371', 'Comissões': '#FFF9C4', 'Lucro': '#4DB6AC'}
-            fig_p = px.pie(names=list(dados_p.keys()), values=[max(0, x) for x in dados_p.values()], hole=0.5, 
-                           color=list(dados_p.keys()), color_discrete_map=cores_map)
+            dados_p = {'FCA': df['FCA'].sum(), 'Frete': f_tot, 'Imp. Compra': df['IPI Compra'].sum() + df['PISCOFINS Compra'].sum(), 
+                       'Imp. Venda': df['ICMS Venda'].sum() + df['IPI Venda'].sum(), 'Comissões': df['Comissao'].sum(), 'Lucro': l_tot}
+            cores_p = {'FCA': '#f69e6e', 'Frete': '#ffccac', 'Imp. Compra': '#e68a5c', 'Imp. Venda': '#d87a4d', 'Comissões': '#fbbd9b', 'Lucro': '#66c4cc'}
+            fig_p = px.pie(names=list(dados_p.keys()), values=[max(0, x) for x in dados_p.values()], hole=0.5, color=list(dados_p.keys()), color_discrete_map=cores_p)
             st.plotly_chart(fig_p, use_container_width=True)
 
         with g2:
             st.subheader("📉 Fluxo Financeiro (Funil)")
-            fig_f = go.Figure(go.Funnel(
-                y=['FCA', 'Nota Entrada', 'Custo CMV', 'Venda Total'], 
-                x=[df['FCA'].sum(), df['Nota Entrada'].sum(), cmv_tot, v_tot],
-                marker={"color": ["#FFB347", "#FFCC80", "#FFE082", "#4DB6AC"]}))
+            fig_f = go.Figure(go.Funnel(y=['FCA', 'Nota Entrada', 'Custo CMV', 'Venda Total'], x=[df['FCA'].sum(), df['Nota Entrada'].sum(), cmv_tot, v_tot],
+                                       marker={"color": ["#ffccac", "#f69e6e", "#d87a4d", "#66c4cc"]}))
             st.plotly_chart(fig_f, use_container_width=True)
 
-        # 8. SENSIBILIDADE (PREÇO GARRAFA VS MARGEM)
-        st.markdown("---")
-        st.subheader("📈 Sensibilidade: Preço de Venda (Garrafa) vs. Margem")
-        custo_garrafa_entrada = df['Nota Entrada'].mean() / 6
-        sim_margins = np.linspace(0.01, 0.60, 50)
-        sim_prices = [custo_garrafa_entrada / (1 - (icms_v_p + IPI_V + COMIS + m)) for m in sim_margins]
-        margem_media_atual = df['Margem Aplicada'].mean()
-        venda_garrafa_ponto = custo_garrafa_entrada / (1 - (icms_v_p + IPI_V + COMIS + margem_media_atual))
+        g3, g4 = st.columns(2)
+        with g3:
+            st.subheader("📈 Sensibilidade: Preço Garrafa vs. Margem")
+            # Cálculo de sensibilidade baseado na média do lote
+            if df['Qtd Caixas'].sum() > 0:
+                # Custo médio de entrada por garrafa (Nota Entrada Total / Qtd Total Garrafas)
+                qtd_total_garrafas = df['Qtd Caixas'].sum() * 6
+                custo_medio_garrafa = df['Nota Entrada'].sum() / qtd_total_garrafas
+                
+                # Simulação de margens de 0% a 60%
+                sim_margins = np.linspace(0.01, 0.60, 50)
+                # Fórmula: Preço = Custo / (1 - ImpostosVenda - Margem)
+                sim_prices = [custo_medio_garrafa / (1 - (icms_v_p + IPI_V + COMIS + m)) for m in sim_margins]
+                
+                fig_sens = go.Figure()
+                fig_sens.add_trace(go.Scatter(
+                    x=sim_margins * 100, 
+                    y=sim_prices, 
+                    mode='lines',
+                    name='Preço Sugerido',
+                    line=dict(color='#4DB6AC', width=3)
+                ))
+                
+                # Ponto da margem atual
+                margem_atual_pct = margem_alvo * 100
+                preco_atual = custo_medio_garrafa / (1 - (icms_v_p + IPI_V + COMIS + margem_alvo))
+                
+                fig_sens.add_trace(go.Scatter(
+                    x=[margem_atual_pct], 
+                    y=[preco_atual],
+                    mode='markers+text',
+                    name='Margem Atual',
+                    text=[f"R$ {preco_atual:.2f}"],
+                    textposition="top center",
+                    marker=dict(color='orange', size=10)
+                ))
+                
+                fig_sens.update_layout(
+                    xaxis_title="Margem Alvo (%)",
+                    yaxis_title="Preço de Venda/Garrafa (R$)",
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_sens, use_container_width=True)
+            else:
+                st.warning("Defina quantidades para ver a sensibilidade.")
 
-        fig_sens = go.Figure()
-        fig_sens.add_trace(go.Scatter(x=sim_margins*100, y=sim_prices, name='Preço Sugerido (R$)', line=dict(color='#4DB6AC', width=3)))
-        fig_sens.add_trace(go.Scatter(x=[margem_media_atual*100], name='Margem Selecionada', y=[venda_garrafa_ponto], mode='markers+text', 
-                                      text=[f"R$ {venda_garrafa_ponto:,.2f}"], textposition="top center",
-                                      marker=dict(color='#FFD700', size=15, line=dict(width=2))))
-        fig_sens.update_layout(xaxis_title="Margem Selecionada (%)", yaxis_title="Preço Médio por Garrafa R$")
-        st.plotly_chart(fig_sens, use_container_width=True)
+        with g4:
+            st.subheader("⚠️ Top 10: Excesso sobre o Teto")
+            
+            # Cálculo do excesso usando o nome correto: 'Venda Total'
+            # Dividimos a Venda Total pela Qtd de Caixas para comparar o valor unitário da caixa com o teto
+            df['Preço Unit. Caixa'] = (df['Venda Total'] / df['Qtd Caixas'].replace(0, 1)).fillna(0)
+            df['Excesso R$'] = df['Preço Unit. Caixa'] - preco_teto
+            
+            # Filtra apenas quem estoura o teto e pega os 10 maiores
+            df_excesso = df[df['Excesso R$'] > 0].sort_values(by='Excesso R$', ascending=False).head(10)
+            
+            if not df_excesso.empty:
+                # FUNÇÃO PARA QUEBRAR O TEXTO
+                def quebrar_texto(nome, max_chars=20):
+                    if not isinstance(nome, str): return str(nome)
+                    if len(nome) <= max_chars: return nome
+                    palavras = nome.split()
+                    linhas = []
+                    linha_atual = ""
+                    for p in palavras:
+                        if len(linha_atual + p) <= max_chars:
+                            linha_atual += p + " "
+                        else:
+                            linhas.append(linha_atual.strip())
+                            linha_atual = p + " "
+                    linhas.append(linha_atual.strip())
+                    return "<br>".join(linhas)
 
-        # 9. TOP 10 EXCESSO (ORDEM DESCRESCENTE)
-        df_excesso = df[df['Venda por Caixa'] > preco_teto].sort_values('Excesso R$', ascending=True).tail(10)
-        if not df_excesso.empty:
-            st.markdown("---")
-            st.subheader("🚨 Top 10 Produtos Acima do Teto")
-            fig_ex = px.bar(df_excesso, x='Excesso R$', y='NomeProduto', orientation='h', color='Excesso R$', color_continuous_scale='Reds', text_auto='.2f')
-            st.plotly_chart(fig_ex, use_container_width=True)
+                df_excesso['Nome Quebrado'] = df_excesso['NomeProduto'].apply(quebrar_texto)
 
-
-        
-    except Exception as e: st.error(f"Erro no processamento: {e}")
-
+                fig_excesso = px.bar(
+                    df_excesso, 
+                    x='Excesso R$', 
+                    y='Nome Quebrado', 
+                    orientation='h',
+                    color='Excesso R$',
+                    color_continuous_scale=['#ffccac', '#f69e6e', '#d87a4d'],
+                    labels={'Excesso R$': 'Excesso (R$)', 'Nome Quebrado': 'Produto'}
+                )
+                
+                fig_excesso.update_layout(
+                    yaxis={'categoryorder':'total ascending'},
+                    margin=dict(l=150),
+                    showlegend=False
+                )
+                st.plotly_chart(fig_excesso, use_container_width=True)
+            else:
+                st.success("✅ Nenhum produto ultrapassa o preço teto!")
+       
+    except Exception as e:
+        st.error(f"Erro no processamento: {e}")
+else:
+    st.info("Aguardando arquivo Excel...")
 
 #%%
 
@@ -330,25 +321,6 @@ if arquivo_upload is not None:
 
 # outra forma:
 # cd /d "C:\Users\lcaruso\Desktop\Luca\Projeto Ricex" && py -m streamlit run simulacao.py
-
-
-#%%
-
-
+# cd /d "C:\Users\lcaruso\Desktop\Luca\Projeto Ricex" && py -m streamlit run simulacao_test.py
 
 #%%
-
-
-# 1. Entrar na pasta do projeto
-# cd "C:\Users\lcaruso\Desktop\Luca\Projeto Ricex"
-
-# 2. Instalar a biblioteca que faltava (se ainda não fez)
-# pip install xlsxwriter streamlit pandas plotly openpyxl
-# ou
-# py -m pip install plotly xlsxwriter openpyxl
-
-# 3. Rodar o sistema para abrir no seu navegador
-# py -m streamlit run simulacao.py
-
-# outra forma:
-# cd /d "C:\Users\lcaruso\Desktop\Luca\Projeto Ricex" && py -m streamlit run simulacao.py
