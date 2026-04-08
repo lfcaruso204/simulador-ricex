@@ -50,10 +50,23 @@ if arquivo_upload is not None:
         c1, c2 = st.sidebar.columns(2)
         cambio = c1.number_input("Câmbio (€/R$)", value=6.30)
         frete_p = c2.number_input("Frete (%)", value=3.0) / 100
+#        preco_teto = st.sidebar.number_input(
+#            "Preço Teto por Caixa (R$)", 
+#            value=5000.0, 
+#            key="sidebar_preco_teto_input"
+#        )
         
         # VARIÁVEL INSERÍVEL: Garrafas por Caixa
         qtde = st.sidebar.number_input("Garrafas por Caixa (un)", value=6, min_value=1, step=1)
-        col_custo_cx = f"Custo da Caixa x {qtde}"
+        col_custo_cx = f"Custo da Caixa (x {qtde})"
+        qtd_padrao = st.sidebar.number_input(
+            "Qtd Padrão de Caixas (Lote)", 
+            value=1, 
+            min_value=0, 
+            max_value=100, 
+            key="sidebar_qtd_padrao_input" 
+        )
+        
         
         st.sidebar.markdown("---")
         
@@ -70,8 +83,26 @@ if arquivo_upload is not None:
         COMIS = st.sidebar.number_input("Comis. (%)", value=6.5, key="comis_v") / 100
         
         st.sidebar.markdown("---")
+
+        st.sidebar.subheader("🎯 Simulador de Margem")
+        # Campo de Digitação
+        margem_digitada = st.sidebar.number_input(
+            "Digitar Margem", 
+            value=20.0, 
+            step=0.1, 
+            format="%.1f",
+            label_visibility="collapsed"
+        )
         
-        margem_alvo = st.sidebar.slider("Margem Alvo (%)", 0.0, 60.0, 20.0) / 100
+        margem_alvo_slider = st.sidebar.slider(
+            "Ajustar via Slider", 
+            min_value=0.0, 
+            max_value=60.0, 
+            value=float(margem_digitada),
+            step=0.1,
+            help="Arraste para ajuste fino"
+        ) / 100
+        
         preco_teto = st.sidebar.number_input("Preço Teto por Caixa (R$)", value=5000.0)
         ajustar_auto = st.sidebar.checkbox("🔄 Ajustar Margens ao Teto")
 
@@ -81,7 +112,8 @@ if arquivo_upload is not None:
 
         # --- 4. EDITOR DE QUANTIDADES ---
         st.subheader("📦 1. Definir Quantidades do Lote")
-        if 'Qtd Caixas' not in df_orig.columns: df_orig['Qtd Caixas'] = 1
+
+        df_orig['Qtd Caixas'] = qtd_padrao
 
         df_editor = st.data_editor(
             df_orig[['NomeProduto', 'Qtd Caixas', col_custo_cx]],
@@ -90,7 +122,9 @@ if arquivo_upload is not None:
                 col_custo_cx: st.column_config.NumberColumn(f"Custo (€/{qtde}un)", format="€ %.2f", disabled=True)
             },
             disabled=["NomeProduto", col_custo_cx],
-            use_container_width=True, hide_index=True
+            use_container_width=True, 
+            hide_index=True,
+            key="tabela_editor_quantidades" # KEY exclusiva para o editor
         )
 
         # --- 5. CÁLCULOS ---
@@ -109,7 +143,7 @@ if arquivo_upload is not None:
             teto_total = preco_teto * df['Qtd Caixas']
             df['Margem Aplicada'] = (1 - (df['Nota Entrada'] / teto_total.replace(0, 1)) - icms_v_p - IPI_V - COMIS)
         else:
-            df['Margem Aplicada'] = margem_alvo
+            df['Margem Aplicada'] = margem_alvo_slider
             
         divisor = 1 - (icms_v_p + IPI_V + COMIS + df['Margem Aplicada'])
         df['Venda Total'] = df['Nota Entrada'] / divisor
@@ -225,8 +259,8 @@ if arquivo_upload is not None:
                 ))
                 
                 # Ponto da margem atual
-                margem_atual_pct = margem_alvo * 100
-                preco_atual = custo_medio_garrafa / (1 - (icms_v_p + IPI_V + COMIS + margem_alvo))
+                margem_atual_pct = margem_alvo_slider * 100
+                preco_atual = custo_medio_garrafa / (1 - (icms_v_p + IPI_V + COMIS + margem_alvo_slider))
                 
                 fig_sens.add_trace(go.Scatter(
                     x=[margem_atual_pct], 
